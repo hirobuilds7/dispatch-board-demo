@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>配車ボード 動作検証｜ドラッグ＆ドロップと重複チェック</title>
+<link href="https://unpkg.com/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css" rel="stylesheet">
+<script src="https://unpkg.com/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
+<style>
+  :root{
+    --ink:#1b2733; --sub:#5b6b7d; --line:#d7dfe8; --bg:#f4f7fa; --card:#fff;
+    --ok:#2e7d5b; --warn:#c2410c; --accent:#1d5f9e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;
+       color:var(--ink);background:var(--bg);line-height:1.7}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 20px 64px}
+  header h1{font-size:22px;margin:0 0 6px}
+  header p{margin:0;color:var(--sub);font-size:14px}
+  .note{background:#fffdf2;border:1px solid #e8dfae;border-radius:8px;
+        padding:12px 14px;margin:18px 0;font-size:13.5px;color:#5a4a1f}
+  .panel{display:grid;grid-template-columns:230px 1fr;gap:16px;margin-top:18px}
+  @media(max-width:760px){.panel{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h2{font-size:14px;margin:0 0 10px;letter-spacing:.02em}
+  .pool{min-height:120px}
+  .job{border:1px solid var(--line);border-left:4px solid var(--accent);
+       border-radius:6px;padding:8px 10px;margin-bottom:8px;background:#fbfdff;
+       cursor:grab;font-size:13px}
+  .job:active{cursor:grabbing}
+  .job .t{color:var(--sub);font-size:12px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--sub);margin-top:10px}
+  .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+  #status{margin-top:14px;padding:11px 13px;border-radius:8px;font-size:13.5px;
+          border:1px solid var(--line);background:#fff}
+  #status.ok{border-color:#bfe0cf;background:#f2fbf6;color:var(--ok)}
+  #status.ng{border-color:#f0c9b0;background:#fff5ef;color:var(--warn)}
+  /* 掴む面積を広げる（帯が薄いとドラッグを外しやすい） */
+  .vis-item{border-radius:5px}
+  .vis-item .vis-item-content{padding:7px 11px;font-size:13px}
+  .vis-item.vis-selected{box-shadow:0 0 0 2px #1d5f9e33}
+  .vis-item.st-plan{background:#e8f1fb;border-color:#9dc0e6;color:#123}
+  .vis-item.st-run{background:#e6f5ec;border-color:#9ed3b6;color:#123}
+  .vis-item.st-hold{background:#fdeee3;border-color:#efbf9a;color:#123}
+  .vis-item.dup{border-width:2px;border-color:#c2410c;box-shadow:0 0 0 2px #f6c9ae}
+  footer{margin-top:34px;color:var(--sub);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>配車ボード 動作検証ページ</h1>
+  <p>行をまたぐドラッグ＆ドロップ／未配車からの投入／重複チェック／色分けが実際に動くかを確認するための1枚です。</p>
+</header>
+
+<div class="note">
+  <b>この画面でお試しいただけること</b><br>
+  ① 帯を <b>上下にドラッグ</b>すると、車両・ドライバーが入れ替わります（行をまたぐ移動）<br>
+  ② 帯を <b>左右にドラッグ</b>すると、時間が変わります。帯の端をつまむと時間の幅を変えられます<br>
+  ③ 左の「未配車」から帯を <b>ボードへドラッグ</b>すると配車できます<br>
+  ④ 同じ車両・ドライバーで<b>時間が重なると赤枠で警告</b>が出ます（下の帯に表示）
+</div>
+
+<div class="panel">
+  <div class="card pool">
+    <h2>未配車の案件</h2>
+    <div id="pool"></div>
+    <p style="font-size:12px;color:var(--sub);margin:6px 0 0">
+      ※ここからボードへドラッグしてください
+    </p>
+  </div>
+  <div class="card">
+    <h2>配車ボード（車両別）</h2>
+    <div id="board"></div>
+    <div class="legend">
+      <span><i class="sw" style="background:#e8f1fb;border:1px solid #9dc0e6"></i>予定</span>
+      <span><i class="sw" style="background:#e6f5ec;border:1px solid #9ed3b6"></i>運行中</span>
+      <span><i class="sw" style="background:#fdeee3;border:1px solid #efbf9a"></i>保留</span>
+      <span><i class="sw" style="border:2px solid #c2410c"></i>重複あり</span>
+    </div>
+  </div>
+</div>
+
+<div id="status">ボードを操作すると、ここに重複チェックの結果が出ます。</div>
+
+<footer>
+  検証用のサンプルです。データは保存されません（画面を再読み込みすると元に戻ります）。<br>
+  使用ライブラリ：vis-timeline（Apache-2.0 / MIT・商用利用可・ライセンス費用なし）
+</footer>
+</div>
+
+<script>
+const DAY = "2026-08-05";
+const t = (h, m) => new Date(`${DAY}T${String(h).padStart(2,"0")}:${String(m||0).padStart(2,"0")}:00`);
+
+const groups = new vis.DataSet([
+  { id: "v1", content: "大型 1号車<br><small>山田</small>" },
+  { id: "v2", content: "大型 2号車<br><small>佐藤</small>" },
+  { id: "v3", content: "中型 3号車<br><small>鈴木</small>" },
+  { id: "v4", content: "軽 4号車<br><small>高橋</small>" }
+]);
+
+let seq = 100;
+const items = new vis.DataSet([
+  { id:1, group:"v1", content:"大阪→名古屋 / 鋼材", start:t(7), end:t(11,30), className:"st-run" },
+  { id:2, group:"v1", content:"名古屋→静岡 / 建材", start:t(13), end:t(16),   className:"st-plan" },
+  { id:3, group:"v2", content:"堺→和歌山 / 飼料",   start:t(8,30), end:t(12), className:"st-plan" },
+  { id:4, group:"v3", content:"京都→草津 / 精密機器", start:t(9), end:t(11),  className:"st-hold" },
+  { id:5, group:"v4", content:"市内配送 / 小口",     start:t(10), end:t(15),  className:"st-plan" }
+]);
+
+const timeline = new vis.Timeline(document.getElementById("board"), items, groups, {
+  start: t(6), end: t(19),
+  min: t(5),  max: t(23),
+  stack: true,
+  orientation: "top",
+  zoomMin: 1000*60*60*2,
+  margin: { item: { horizontal: 8, vertical: 12 }, axis: 14 },
+  // ★既定値 false だと「1回クリックして選択してから」でないとドラッグできず、
+  //   初回の操作が空振りする。配車の現場では1件動かすのに2アクション要ることになる。
+  itemsAlwaysDraggable: { item: true, range: true },
+  groupHeightMode: "fixed",
+  editable: { add: true, updateTime: true, updateGroup: true, remove: false },
+  onAdd: (item, cb) => { item.className = item.className || "st-plan"; cb(item); },
+  locale: "ja"
+});
+
+// ---- 重複チェック（同じ行で時間が重なっていないか）----
+function overlap(a, b) {
+  return a.group === b.group && (+a.start) < (+b.end) && (+b.start) < (+a.end);
+}
+function check() {
+  const all = items.get().map(i => ({...i, start:new Date(i.start), end:new Date(i.end)}));
+  const dup = new Set();
+  const pairs = [];
+  for (let i = 0; i < all.length; i++) {
+    for (let j = i + 1; j < all.length; j++) {
+      if (overlap(all[i], all[j])) {
+        dup.add(all[i].id); dup.add(all[j].id);
+        const g = groups.get(all[i].group).content.replace(/<br>.*/, "");
+        pairs.push(`${g}：「${all[i].content}」と「${all[j].content}」`);
+      }
+    }
+  }
+  items.forEach(it => {
+    const base = (it.className || "").replace(/\s*dup/, "");
+    const next = dup.has(it.id) ? base + " dup" : base;
+    if (next !== it.className) items.update({ id: it.id, className: next });
+  });
+  const el = document.getElementById("status");
+  if (pairs.length === 0) {
+    el.className = "ok";
+    el.textContent = "重複はありません。";
+  } else {
+    el.className = "ng";
+    el.innerHTML = "<b>重複が " + pairs.length + " 件あります</b><br>" + pairs.join("<br>");
+  }
+}
+items.on("*", () => setTimeout(check, 0));
+check();
+
+// ---- 未配車リスト（外部からのドラッグ＆ドロップ）----
+const pending = [
+  { title:"神戸→姫路 / パレット", hours:3 },
+  { title:"東大阪→奈良 / 一般貨物", hours:2 },
+  { title:"泉佐野→関空 / 航空便", hours:4 }
+];
+const pool = document.getElementById("pool");
+pending.forEach(p => {
+  const d = document.createElement("div");
+  d.className = "job";
+  d.draggable = true;
+  d.innerHTML = `${p.title}<div class="t">目安 ${p.hours}時間</div>`;
+  d.addEventListener("dragstart", ev => {
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text", JSON.stringify({
+      id: ++seq,
+      content: p.title,
+      className: "st-plan",
+      hours: p.hours,
+      _el: p.title
+    }));
+  });
+  pool.appendChild(d);
+});
+
+// vis-timeline は外部ドロップを自前で配線する（ここが実装の要る箇所）
+const boardEl = document.getElementById("board");
+boardEl.addEventListener("dragover", ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; });
+boardEl.addEventListener("drop", ev => {
+  ev.preventDefault();
+  let data;
+  try { data = JSON.parse(ev.dataTransfer.getData("text")); } catch(e) { return; }
+  const props = timeline.getEventProperties(ev);
+  if (!props.group) return;
+  const start = props.time;
+  const end = new Date(+start + data.hours * 60 * 60 * 1000);
+  items.add({ id:data.id, group:props.group, content:data.content, start, end, className:data.className });
+  const gone = [...pool.querySelectorAll(".job")].find(n => n.textContent.startsWith(data._el));
+  if (gone) gone.remove();
+});
+</script>
+</body>
+</html>
