@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>配車ボード 3D</title>
+<style>
+:root{
+  --bg:#070a11; --panel:rgba(20,26,38,.72); --border:rgba(255,255,255,.09);
+  --text:#eef2f8; --text2:#95a2b6; --text3:#5f6c81;
+  --accent:#5b8cff;
+  --run:#3ddba1; --plan:#7fa9ff; --hold:#f5b955; --dup:#ff7a5c;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg)}
+body{font-family:-apple-system,"Segoe UI","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;
+  color:var(--text);font-size:14px;-webkit-font-smoothing:antialiased;font-feature-settings:"palt" 1}
+canvas{display:block}
+#app{position:fixed;inset:0}
+
+.hud{position:fixed;pointer-events:none;z-index:10}
+.hud *{pointer-events:auto}
+
+/* 左上 */
+.tl{top:18px;left:20px}
+.title{display:flex;align-items:center;gap:10px;margin-bottom:3px}
+.title .m{width:28px;height:28px;border-radius:8px;
+  background:linear-gradient(160deg,#7ba4ff,var(--accent) 55%,#2f4fc0);display:grid;place-items:center;
+  box-shadow:0 0 0 1px rgba(255,255,255,.16) inset,0 6px 20px rgba(91,140,255,.45)}
+.title h1{margin:0;font-size:17px;font-weight:680;letter-spacing:-.02em}
+.title .b{font-size:10px;font-weight:700;letter-spacing:.1em;color:#8fb4ff;
+  border:1px solid rgba(91,140,255,.4);border-radius:4px;padding:2px 7px;background:rgba(91,140,255,.12)}
+.tl p{margin:0;color:var(--text2);font-size:12.5px;max-width:330px;line-height:1.65}
+
+/* 右上 */
+.tr{top:18px;right:20px;display:flex;flex-direction:column;gap:9px;align-items:flex-end}
+.stats{display:flex;gap:1px;background:var(--border);border:1px solid var(--border);
+  border-radius:11px;overflow:hidden;backdrop-filter:blur(16px) saturate(150%)}
+.st{background:var(--panel);padding:9px 15px;text-align:right;min-width:86px}
+.st .l{font-size:9.5px;font-weight:700;letter-spacing:.09em;color:var(--text3);text-transform:uppercase}
+.st .v{font-size:20px;font-weight:680;letter-spacing:-.02em;line-height:1.25;font-variant-numeric:tabular-nums}
+.st .v u{font-size:10.5px;font-weight:500;color:var(--text3);text-decoration:none;margin-left:2px}
+.st.alert .v{color:var(--dup)}
+.btns{display:flex;gap:7px}
+.b{border:1px solid var(--border);background:var(--panel);backdrop-filter:blur(16px);
+  color:var(--text2);border-radius:9px;padding:7px 13px;font-size:12.5px;font-weight:600;
+  cursor:pointer;font-family:inherit;transition:.16s;display:flex;align-items:center;gap:6px}
+.b:hover{color:var(--text);border-color:rgba(255,255,255,.2);background:rgba(30,38,54,.85)}
+.b.on{color:#cfe0ff;border-color:rgba(91,140,255,.5);background:rgba(91,140,255,.18)}
+.b a{color:inherit;text-decoration:none}
+
+/* 下 */
+.bl{bottom:18px;left:20px;display:flex;gap:16px;align-items:center;
+  background:var(--panel);backdrop-filter:blur(16px) saturate(150%);
+  border:1px solid var(--border);border-radius:11px;padding:10px 16px;font-size:12px;color:var(--text2)}
+.bl i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:-1px}
+.br{bottom:18px;right:20px;font-size:11.5px;color:var(--text3);text-align:right;line-height:1.8}
+
+/* ツールチップ */
+#tip{position:fixed;z-index:20;pointer-events:none;opacity:0;transition:opacity .13s;
+  background:rgba(14,19,29,.94);border:1px solid var(--border);border-radius:10px;
+  padding:11px 13px;backdrop-filter:blur(14px);box-shadow:0 20px 50px rgba(0,0,0,.6);min-width:190px}
+#tip.on{opacity:1}
+#tip .r{font-size:13.5px;font-weight:660;letter-spacing:-.01em;margin-bottom:5px}
+#tip .g{font-size:11.5px;color:var(--text2);display:flex;justify-content:space-between;gap:14px;padding:1.5px 0}
+#tip .g b{font-weight:600;color:var(--text)}
+#tip .c{display:inline-block;font-size:10.5px;font-weight:700;border-radius:4px;padding:1.5px 7px;margin-top:6px}
+
+#load{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);z-index:50;
+  color:var(--text3);font-size:12.5px;letter-spacing:.06em;transition:opacity .5s}
+#load.gone{opacity:0;pointer-events:none}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://unpkg.com/three@0.169.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.169.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+
+<div id="app"></div>
+<div id="load">読み込み中…</div>
+
+<div class="hud tl">
+  <div class="title">
+    <span class="m"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></span>
+    <h1>配車ボード</h1><span class="b">3D</span>
+  </div>
+  <p>奥行きが時間、手前から奥へ 6:00 → 19:00。横に並ぶ4本のレーンが車両です。<br>ドラッグで回転、ホイールで拡大、ブロックにカーソルを合わせると詳細が出ます。</p>
+</div>
+
+<div class="hud tr">
+  <div class="stats">
+    <div class="st"><div class="l">配車</div><div class="v">5<u>件</u></div></div>
+    <div class="st"><div class="l">稼働</div><div class="v">4<u>/4</u></div></div>
+    <div class="st" id="s-dup"><div class="l">重複</div><div class="v" id="v-dup">0<u>件</u></div></div>
+  </div>
+  <div class="btns">
+    <button class="b on" id="spin">自動回転</button>
+    <button class="b" id="reset">視点リセット</button>
+    <button class="b"><a href="index.html">2D版を見る</a></button>
+  </div>
+</div>
+
+<div class="hud bl">
+  <span><i style="background:#3ddba1"></i>運行中</span>
+  <span><i style="background:#7fa9ff"></i>予定</span>
+  <span><i style="background:#f5b955"></i>保留</span>
+  <span><i style="background:#ff7a5c"></i>重複</span>
+</div>
+<div class="hud br">サンプルデータです。操作内容は保存されません。<br>three.js（MIT）で描画しています。</div>
+
+<div id="tip"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ═══ データ ═══ */
+const H0=6, H1=19;                       // 表示する時間帯
+const LANES=[
+  {nm:"大型 1号車", dr:"山田 健", cls:"10t"},
+  {nm:"大型 2号車", dr:"佐藤 実", cls:"10t"},
+  {nm:"中型 3号車", dr:"鈴木 誠", cls:"4t"},
+  {nm:"軽 4号車",  dr:"高橋 学", cls:"軽"}
+];
+const COL={run:0x3ddba1, plan:0x7fa9ff, hold:0xf5b955, dup:0xff7a5c};
+const LBL={run:"運行中", plan:"予定", hold:"保留"};
+const JOBS=[
+  {lane:0, s:7,   e:11.5, st:"run",  from:"大阪",  to:"名古屋", load:"鋼材 8.5t",     memo:"6番ゲート"},
+  {lane:0, s:13,  e:16,   st:"plan", from:"名古屋",to:"静岡",   load:"建材 6.0t",     memo:""},
+  {lane:1, s:8.5, e:12,   st:"plan", from:"堺",    to:"和歌山", load:"飼料 9.0t",     memo:"荷降ろし場が狭い"},
+  {lane:2, s:9,   e:11,   st:"hold", from:"京都",  to:"草津",   load:"精密機器 2.2t", memo:"取扱注意"},
+  {lane:3, s:10,  e:15,   st:"plan", from:"市内配送", to:"小口5件", load:"雑貨 0.8t", memo:""}
+];
+
+/* ═══ 寸法 ═══ */
+const LEN=26;                            // 時間軸の全長
+const LW=3.2;                            // レーン幅
+const GAP=0.55;
+const tz = h => -LEN/2 + (h-H0)/(H1-H0)*LEN;   // 時刻 → z
+const lx = i => (i-(LANES.length-1)/2)*(LW+GAP);
+
+/* ═══ シーン ═══ */
+const app=document.getElementById('app');
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x070a11);
+scene.fog=new THREE.Fog(0x070a11, 34, 76);
+
+const camera=new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 0.1, 300);
+const HOME=new THREE.Vector3(17.5, 15.5, 20.5);
+camera.position.copy(HOME);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.05;
+app.appendChild(renderer.domElement);
+
+const ctrl=new OrbitControls(camera, renderer.domElement);
+ctrl.enableDamping=true; ctrl.dampingFactor=.06;
+ctrl.minDistance=12; ctrl.maxDistance=62;
+ctrl.maxPolarAngle=Math.PI/2.06;
+ctrl.target.set(0,1.2,0);
+ctrl.autoRotate=true; ctrl.autoRotateSpeed=.55;
+
+/* ═══ 光 ═══ */
+scene.add(new THREE.HemisphereLight(0x9fc0ff, 0x0a0e16, .55));
+const key=new THREE.DirectionalLight(0xffffff, 1.5);
+key.position.set(14,22,12); key.castShadow=true;
+key.shadow.mapSize.set(2048,2048);
+const d=26; Object.assign(key.shadow.camera,{left:-d,right:d,top:d,bottom:-d,near:1,far:70});
+key.shadow.bias=-0.0006; key.shadow.radius=3;
+scene.add(key);
+const rim=new THREE.DirectionalLight(0x5b8cff, .85); rim.position.set(-16,9,-14); scene.add(rim);
+const fill=new THREE.PointLight(0x3ddba1, 28, 44, 2); fill.position.set(-6,6,-12); scene.add(fill);
+
+/* ═══ 床 ═══ */
+const floor=new THREE.Mesh(
+  new THREE.PlaneGeometry(150,150),
+  new THREE.MeshStandardMaterial({color:0x0b0f18, roughness:.92, metalness:.15})
+);
+floor.rotation.x=-Math.PI/2; floor.position.y=-.02; floor.receiveShadow=true;
+scene.add(floor);
+
+const grid=new THREE.GridHelper(150, 75, 0x1b2436, 0x131a27);
+grid.material.transparent=true; grid.material.opacity=.75;
+scene.add(grid);
+
+/* ═══ レーンの台 ═══ */
+const laneMat=new THREE.MeshStandardMaterial({color:0x121826, roughness:.85, metalness:.25});
+LANES.forEach((_,i)=>{
+  const base=new THREE.Mesh(new THREE.BoxGeometry(LW, .32, LEN+2.4), laneMat);
+  base.position.set(lx(i), .16, 0); base.receiveShadow=true; base.castShadow=true;
+  scene.add(base);
+  // レーンの縁の光
+  const edge=new THREE.Mesh(
+    new THREE.BoxGeometry(LW+.06, .035, LEN+2.4),
+    new THREE.MeshBasicMaterial({color:0x2b3a55})
+  );
+  edge.position.set(lx(i), .335, 0); scene.add(edge);
+});
+
+/* ═══ 文字テクスチャ ═══ */
+function textSprite(lines, opt={}){
+  const {fs=52, sub=32, w=560, h=170, align='center'}=opt;
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const g=c.getContext('2d');
+  g.textAlign=align; g.textBaseline='middle';
+  const x= align==='center'? w/2 : 12;
+  g.font=`700 ${fs}px -apple-system,"Hiragino Sans","Yu Gothic UI",sans-serif`;
+  g.fillStyle='#eef2f8'; g.fillText(lines[0], x, lines[1]? h/2-26 : h/2);
+  if(lines[1]){ g.font=`500 ${sub}px -apple-system,"Hiragino Sans",sans-serif`;
+    g.fillStyle='#8b99ad'; g.fillText(lines[1], x, h/2+30); }
+  const tx=new THREE.CanvasTexture(c);
+  tx.anisotropy=renderer.capabilities.getMaxAnisotropy();
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tx, transparent:true, depthWrite:false}));
+  sp.scale.set(w/100, h/100, 1);
+  return sp;
+}
+
+/* レーン名（手前側） */
+LANES.forEach((l,i)=>{
+  const s=textSprite([l.nm, `${l.dr}・${l.cls}`]);
+  s.position.set(lx(i), 1.5, LEN/2+3.2);
+  s.scale.multiplyScalar(.62);
+  scene.add(s);
+});
+
+/* 時刻の目盛り */
+for(let h=H0; h<=H1; h+=2){
+  const c=document.createElement('canvas'); c.width=200; c.height=80;
+  const g=c.getContext('2d');
+  g.font='700 46px -apple-system,sans-serif'; g.fillStyle='#5f6c81';
+  g.textAlign='right'; g.textBaseline='middle';
+  g.fillText(String(h).padStart(2,'0')+':00', 190, 42);
+  const tx=new THREE.CanvasTexture(c);
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tx, transparent:true, depthWrite:false}));
+  sp.scale.set(2.0,.8,1);
+  sp.position.set(lx(0)-LW/2-2.4, .55, tz(h));
+  scene.add(sp);
+  // 目盛り線
+  const ln=new THREE.Mesh(new THREE.BoxGeometry(LANES.length*(LW+GAP)+1.6,.02,.035),
+    new THREE.MeshBasicMaterial({color:0x1e2838, transparent:true, opacity:.85}));
+  ln.position.set(0,.345,tz(h)); scene.add(ln);
+}
+
+/* ═══ 重複判定 ═══ */
+const dupIdx=new Set();
+for(let i=0;i<JOBS.length;i++)for(let j=i+1;j<JOBS.length;j++){
+  const a=JOBS[i],b=JOBS[j];
+  if(a.lane===b.lane && a.s<b.e && b.s<a.e){dupIdx.add(i);dupIdx.add(j);}
+}
+document.getElementById('v-dup').innerHTML=`${dupIdx.size?dupIdx.size:0}<u>件</u>`;
+if(dupIdx.size) document.getElementById('s-dup').classList.add('alert');
+
+/* ═══ 配車ブロック ═══ */
+const blocks=[];
+JOBS.forEach((j,i)=>{
+  const len=(j.e-j.s)/(H1-H0)*LEN;
+  const isDup=dupIdx.has(i);
+  const col=isDup?COL.dup:COL[j.st];
+  const geo=new THREE.BoxGeometry(LW*.82, 1.15, len, 1,1,1);
+  const mat=new THREE.MeshStandardMaterial({
+    color:col, roughness:.34, metalness:.42,
+    emissive:col, emissiveIntensity:.34,
+    transparent:true, opacity:.94
+  });
+  const m=new THREE.Mesh(geo, mat);
+  m.position.set(lx(j.lane), .9, (tz(j.s)+tz(j.e))/2);
+  m.castShadow=true; m.receiveShadow=true;
+  m.userData={job:j, base:.34, dup:isDup, col};
+  scene.add(m); blocks.push(m);
+
+  // 光の輪郭
+  const eg=new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({color:col, transparent:true, opacity:.6})
+  );
+  eg.position.copy(m.position); scene.add(eg); m.userData.edge=eg;
+
+  // 床への投影（発光）
+  const gl=new THREE.Mesh(
+    new THREE.PlaneGeometry(LW*.95, len+.5),
+    new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.11, depthWrite:false})
+  );
+  gl.rotation.x=-Math.PI/2; gl.position.set(m.position.x, .345, m.position.z);
+  scene.add(gl);
+
+  // ブロックの上に行先
+  const s=textSprite([`${j.from} → ${j.to}`],{fs:44,w:640,h:96});
+  s.scale.multiplyScalar(.52);
+  s.position.set(m.position.x, 2.0, m.position.z);
+  scene.add(s); m.userData.label=s;
+});
+
+/* ═══ ホバー ═══ */
+const ray=new THREE.Raycaster(), pt=new THREE.Vector2();
+const tip=document.getElementById('tip');
+let hot=null;
+addEventListener('pointermove', e=>{
+  pt.x=(e.clientX/innerWidth)*2-1; pt.y=-(e.clientY/innerHeight)*2+1;
+  ray.setFromCamera(pt, camera);
+  const hit=ray.intersectObjects(blocks)[0];
+  if(hit){
+    const m=hit.object;
+    if(hot!==m){ if(hot) hot.material.emissiveIntensity=hot.userData.base;
+      hot=m; m.material.emissiveIntensity=.85; }
+    const j=m.userData.job, L=LANES[j.lane];
+    const hh=v=>String(Math.floor(v)).padStart(2,'0')+":"+String(Math.round((v%1)*60)).padStart(2,'0');
+    const c=m.userData.dup?COL.dup:COL[j.st];
+    const hex='#'+c.toString(16).padStart(6,'0');
+    tip.innerHTML=`<div class="r">${j.from} → ${j.to}</div>
+      <div class="g"><span>車両</span><b>${L.nm}</b></div>
+      <div class="g"><span>ドライバー</span><b>${L.dr}</b></div>
+      <div class="g"><span>時間</span><b>${hh(j.s)} 〜 ${hh(j.e)}</b></div>
+      <div class="g"><span>積載</span><b>${j.load}</b></div>
+      ${j.memo?`<div class="g"><span>注意</span><b>${j.memo}</b></div>`:''}
+      <span class="c" style="background:${hex}22;color:${hex}">${m.userData.dup?'重複あり':LBL[j.st]}</span>`;
+    tip.classList.add('on');
+    tip.style.left=Math.min(e.clientX+16, innerWidth-230)+'px';
+    tip.style.top=Math.min(e.clientY+14, innerHeight-190)+'px';
+    document.body.style.cursor='pointer';
+  }else{
+    if(hot){hot.material.emissiveIntensity=hot.userData.base; hot=null;}
+    tip.classList.remove('on'); document.body.style.cursor='';
+  }
+});
+
+/* ═══ 操作 ═══ */
+const sp=document.getElementById('spin');
+sp.onclick=()=>{ctrl.autoRotate=!ctrl.autoRotate; sp.classList.toggle('on',ctrl.autoRotate);};
+document.getElementById('reset').onclick=()=>{
+  camera.position.copy(HOME); ctrl.target.set(0,1.2,0); ctrl.update();
+};
+addEventListener('resize', ()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ═══ ループ ═══ */
+const clock=new THREE.Clock();
+(function loop(){
+  requestAnimationFrame(loop);
+  const t=clock.getElapsedTime();
+  blocks.forEach((m,i)=>{
+    if(m!==hot){
+      // 重複は強く、運行中はゆるく脈打つ
+      const j=m.userData.job;
+      const amp = m.userData.dup? .30 : (j.st==='run'? .16 : 0);
+      m.material.emissiveIntensity = m.userData.base + amp*(Math.sin(t*2.2+i)*.5+.5);
+    }
+    m.userData.edge.material.opacity = .45 + .25*(Math.sin(t*1.6+i)*.5+.5);
+  });
+  ctrl.update();
+  renderer.render(scene,camera);
+})();
+
+document.getElementById('load').classList.add('gone');
+</script>
+</body>
+</html>
