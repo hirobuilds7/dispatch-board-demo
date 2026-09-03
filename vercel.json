@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "status": 301,
+      "headers": {
+        "Location": "https://dispatch-board-demo.hirobuilds7.workers.dev/$1"
+      }
+    }
+  ]
+}
