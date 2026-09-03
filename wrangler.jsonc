@@ -1,0 +1,15 @@
+{
+	// 配車ボード動作検証デモ（静的HTML）の Cloudflare Workers 設定
+	// 正本: memory/project-cloudflare.md（段階②）／設計書 2026-09-03_cloudflare-stage2.md
+	// 公開は deploy-cf.ps1 経由のみ＝dist/ に公開ファイルだけ転写してからデプロイする。
+	// ★リポ直下を assets.directory にするのは禁止（README.md・.git が同居しとる）。
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "dispatch-board-demo",
+	"compatibility_date": "2026-09-03",
+	// 🔴 バージョンごとの Preview URL を出さん（2026-08-25 段階②の方針）
+	//   既定は有効＝<hash>-<name>.workers.dev が生えて、同じ中身が別URLで拾われうる。
+	"preview_urls": false,
+	"assets": {
+		"directory": "./dist"
+	}
+}

@@ -1,0 +1,5 @@
+# デプロイ用の転写先 / 検証成果物（deploy-cf.ps1 が毎回作り直す）
+/dist/
+/.wrangler/
+/.wrangler-dry/
+/node_modules/
